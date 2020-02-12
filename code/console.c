@@ -225,7 +225,7 @@ consoleintr(int (*getc)(void))
       uartputc('$');
       uartputc(' ');
       break;
-    case ('\t'):  // Tab.
+    case ('\t'):  // TODO Tab.
       break;
     case C('H'): case '\x7f':  // Backspace
       if(input.e != input.w){
