@@ -187,12 +187,63 @@ struct {
   uint e;  // Edit index
 } input;
 
+#define MAX_HISTORY 10
+static char history_stack[MAX_HISTORY][INPUT_BUF];
+char input_command[INPUT_BUF];
+
+void
+copy_to_history_stack(int index, char* command)
+{
+    for(int i = 0; i < strlen(command); i++)
+    {
+        if (command[i] == ' ')
+            break;
+        history_stack[index][i] = command[i];
+    }
+    history_stack[index][strlen(command)] = '\0';
+}
+
+void
+push_to_history_stack(char* command)
+{
+    for (int i = MAX_HISTORY - 1; i > 0; i--)
+        copy_to_history_stack(i, history_stack[i - 1]);
+    copy_to_history_stack(0, command);
+}
+
+void
+complete()
+{
+    int i = 0, j = 0, k = 0;
+    for (j = 0; j <= MAX_HISTORY; j++)
+    {
+        for (i = 0; i < input.e - input.w; i++)
+        {
+            if (history_stack[j][i] != input.buf[i + input.w])
+                break;
+        }
+        if (i == input.e - input.w)
+        {
+            for (k = 0; k < strlen(history_stack[j]); k++)
+            {
+                input_command[k] = history_stack[j][k + i];
+                input.buf[input.e++ % INPUT_BUF] = input_command[k];
+            }
+            input_command[strlen(history_stack[j])] = '\0';
+            return;
+        }
+    }
+    input_command[0] = '\0';
+}
+
 #define C(x)  ((x)-'@')  // Control-x
 
 void
 consoleintr(int (*getc)(void))
 {
-  int c, doprocdump = 0, i, pos;
+  char buffer[INPUT_BUF];
+  int c, doprocdump = 0, i, pos, k;
+  int command_index;
 
   acquire(&cons.lock);
   while((c = getc()) >= 0){
@@ -209,23 +260,30 @@ consoleintr(int (*getc)(void))
       }
       break;
     case C('R'):  //Clear Terminal
-      i = 0;    
+      i = 0;
       while(i <= 24){
         cgaputc('\n');
         i++;
-      } 
+      }
       pos = 0;
       outb(CRTPORT, 14);
       outb(CRTPORT+1, pos>>8);
       outb(CRTPORT, 15);
       outb(CRTPORT+1, pos);
-  
+
       cgaputc('$');
       cgaputc(' ');
       uartputc('$');
       uartputc(' ');
       break;
-    case ('\t'):  // TODO Tab.
+    case ('\t'):  // Tab.
+      complete();
+      command_index = 0;
+      while (input_command[command_index] != '\0')
+      {
+        consputc(input_command[command_index]);
+        command_index++;
+      }
       break;
     case C('H'): case '\x7f':  // Backspace
       if(input.e != input.w){
@@ -239,8 +297,14 @@ consoleintr(int (*getc)(void))
         input.buf[input.e++ % INPUT_BUF] = c;
         consputc(c);
         if(c == '\n' || c == C('D') || input.e == input.r+INPUT_BUF){
-          input.w = input.e;
+          if (c == '\n') {
+            for(i = input.w, k = 0; i < input.e - 1; i++, k++)
+              buffer[k] = input.buf[i % INPUT_BUF];
+            buffer[k % INPUT_BUF] = '\0';
+            push_to_history_stack(buffer);
+          }
 
+          input.w = input.e;
           wakeup(&input.r);
         }
       }
